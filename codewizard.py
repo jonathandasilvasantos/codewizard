@@ -32,6 +32,9 @@ class TextEditor:
         self.selection_end = None
         self.is_selecting = False
         self.horizontal_scroll_offset = 0
+        self.undo_stack = []
+        self.redo_stack = []
+        
 
     def copy_text(self):
         if self.selection_start is not None and self.selection_end is not None:
@@ -49,6 +52,7 @@ class TextEditor:
                 pyperclip.copy(copied_text)
                 
     def paste_text(self):
+        self.push_undo()  # Push current state onto undo stack before making changes
         # If there's a selection, delete it first
         if self.selection_start is not None and self.selection_end is not None:
             self.delete_selection()
@@ -65,6 +69,7 @@ class TextEditor:
 
 
     def cut_text(self):
+        self.push_undo()  # Push current state onto undo stack before making changes
         self.copy_text()
         self.delete_selection()
 
@@ -121,6 +126,11 @@ class TextEditor:
             elif event.key == K_RIGHT:
                 self.horizontal_scroll(1)
                 self.jump_to_end_of_line()
+            if event.key == K_z:
+                if SHIFT_PRESSED:
+                    self.redo()
+                else:
+                    self.undo()
             return
 
         # Handle single key events
@@ -167,6 +177,7 @@ class TextEditor:
 
 
     def handle_backspace(self):
+        self.push_undo()  # Push current state onto undo stack before making changes
         if self.selection_start is not None and self.selection_end is not None:
             self.delete_selection()
         elif self.cursor_pos > 0:
@@ -175,12 +186,14 @@ class TextEditor:
             self.merge_with_previous_line()
 
     def handle_return(self):
+        self.push_undo()  # Push current state onto undo stack before making changes
         self.split_line_at_cursor()
         # Check if current line is beyond the visible portion of the screen.
         if self.current_line - self.scroll_offset >= ALTURA // 30:
             self.scroll_offset += 1
 
     def handle_delete(self):
+        self.push_undo()  # Push current state onto undo stack before making changes
         if self.selection_start is not None and self.selection_end is not None:
             self.delete_selection()
         elif self.cursor_pos < len(self.lines[self.current_line]):
@@ -225,6 +238,7 @@ class TextEditor:
 
     def handle_character_input(self, char):
         if char:
+            self.push_undo()  # Push current state onto undo stack before making changes
             if self.selection_start is not None and self.selection_end is not None:
                 self.delete_selection()
             self.insert_char_at_cursor(char)
@@ -349,6 +363,23 @@ class TextEditor:
         cursor_offset = self.font.size(self.lines[self.current_line][:self.cursor_pos - self.horizontal_scroll_offset])[0]
         pygame.draw.line(surface, TEXTOBRIGHT, (10 + cursor_offset, index * 30), (10 + cursor_offset, index * 30 + 24), 2)
 
+    def push_undo(self):
+        """Pushes the current state to the undo stack."""
+        self.undo_stack.append(self.lines.copy())
+        # Clear redo stack since we have a new action
+        self.redo_stack.clear()
+
+    def undo(self):
+        """Reverts the editor to the previous state."""
+        if self.undo_stack:
+            self.redo_stack.append(self.lines.copy())
+            self.lines = self.undo_stack.pop()
+
+    def redo(self):
+        """Redoes the previously undone action."""
+        if self.redo_stack:
+            self.undo_stack.append(self.lines.copy())
+            self.lines = self.redo_stack.pop()
 
 
 editor = TextEditor(fonte)
