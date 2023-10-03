@@ -81,33 +81,35 @@ class TextEditor:
         Deletes the text between selection_start and selection_end.
         Resets the selection after deleting.
         """
-        if self.selection_start is not None and self.selection_end is not None:
-            start_line, start_pos = self.selection_start
-            end_line, end_pos = self.selection_end
+        if self.selection_start is None or self.selection_end is None:
+            # No selection to delete
+            return
 
-            # Guard against invalid selections
-            if start_line > end_line or (start_line == end_line and start_pos > end_pos):
-                # You could either raise an exception or just return
-                return
+        start_line, start_pos = self.selection_start
+        end_line, end_pos = self.selection_end
 
-            # Same line selection
-            if start_line == end_line:
-                self.lines[start_line] = self.lines[start_line][:start_pos] + self.lines[start_line][end_pos:]
-                self.cursor_pos = start_pos
-            else:
-                # Merge lines from start_line to end_line and delete the in-between lines
-                start_line_content = self.lines[start_line][:start_pos]
-                end_line_content = self.lines[end_line][end_pos:]
-                
-                self.lines[start_line] = start_line_content + end_line_content
-                del self.lines[start_line + 1:end_line + 1]
-                
-                self.cursor_pos = start_pos
-                self.current_line = start_line
+        # If selection is from right to left, swap start and end
+        if start_line > end_line or (start_line == end_line and start_pos > end_pos):
+            start_line, start_pos, end_line, end_pos = end_line, end_pos, start_line, start_pos
 
-            # Reset selection
-            self.selection_start = None
-            self.selection_end = None
+        # Same line selection
+        if start_line == end_line:
+            self.lines[start_line] = self.lines[start_line][:start_pos] + self.lines[start_line][end_pos:]
+            self.cursor_pos = start_pos
+        else:
+            # Merge lines from start_line to end_line and delete the in-between lines
+            start_line_content = self.lines[start_line][:start_pos]
+            end_line_content = self.lines[end_line][end_pos:]
+
+            self.lines[start_line] = start_line_content + end_line_content
+            del self.lines[start_line + 1:end_line + 1]
+
+            self.cursor_pos = start_pos
+            self.current_line = start_line
+
+        # Reset selection
+        self.selection_start = None
+        self.selection_end = None
 
 
     def input(self, event):
@@ -157,20 +159,19 @@ class TextEditor:
         else:
             self.handle_character_input(event.unicode)
             
-        # Handle SHIFT (Selection) behaviour
+        # If SHIFT is pressed and no selection has started yet, initialize selection_start
         if SHIFT_PRESSED and self.selection_start is None:
             self.selection_start = (self.current_line, self.cursor_pos)
-        
-        # Update selection end if SHIFT or CMD is pressed
+
+        # If either SHIFT or CMD is pressed, update the selection_end
         if SHIFT_PRESSED or CMD_PRESSED:
             self.selection_end = (self.current_line, self.cursor_pos)
             
-            # Swap selection start and end if necessary
-            if self.selection_start > self.selection_end:
-                self.selection_start, self.selection_end = self.selection_end, self.selection_start
         else:
+            # If neither SHIFT nor CMD is pressed, reset the selection
             self.selection_start = None
             self.selection_end = None
+
 
    
     def horizontal_scroll(self, amount):
