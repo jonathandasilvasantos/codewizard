@@ -1,3 +1,4 @@
+import pyperclip 
 import pygame
 from pygame.locals import *
 
@@ -30,6 +31,42 @@ class TextEditor:
         self.selection_start = None
         self.selection_end = None
         self.is_selecting = False
+
+    def copy_text(self):
+        if self.selection_start is not None and self.selection_end is not None:
+            start_line, start_pos = self.selection_start
+            end_line, end_pos = self.selection_end
+            
+            # Same line selection
+            if start_line == end_line:
+                pyperclip.copy(self.lines[start_line][start_pos:end_pos])
+            else:
+                copied_text = self.lines[start_line][start_pos:]
+                for line_num in range(start_line + 1, end_line):
+                    copied_text += '\n' + self.lines[line_num]
+                copied_text += '\n' + self.lines[end_line][:end_pos]
+                pyperclip.copy(copied_text)
+                
+    def paste_text(self):
+        # If there's a selection, delete it first
+        if self.selection_start is not None and self.selection_end is not None:
+            self.delete_selection()
+        
+        clipboard_content = pyperclip.paste().split('\n')
+        for idx, content in enumerate(clipboard_content):
+            if idx == 0:
+                self.lines[self.current_line] = self.lines[self.current_line][:self.cursor_pos] + content + self.lines[self.current_line][self.cursor_pos:]
+                self.cursor_pos += len(content)
+            else:
+                self.lines.insert(self.current_line + idx, content)
+                self.current_line += 1
+                self.cursor_pos = len(content)
+
+
+    def cut_text(self):
+        self.copy_text()
+        self.delete_selection()
+
 
     def delete_selection(self):
         """
@@ -64,10 +101,21 @@ class TextEditor:
             self.selection_start = None
             self.selection_end = None
 
+
     def input(self, event):
         cmd_pressed = event.mod & (KMOD_LMETA | KMOD_RMETA) or event.mod & (KMOD_LCTRL | KMOD_RCTRL)  # Check for Command key (or Ctrl key for non-Mac users)
         shift_pressed = event.mod & KMOD_SHIFT
 
+        # Handle copy, paste and cut features
+        if cmd_pressed:
+            if event.key == K_c:
+                self.copy_text()
+            elif event.key == K_v:
+                self.paste_text()
+            elif event.key == K_x:
+                self.cut_text()
+            return
+    
         # Handle SHIFT (Selection) behaviour
         if shift_pressed:
             if self.selection_start is None:
@@ -101,7 +149,7 @@ class TextEditor:
             self.handle_character_input(event.unicode)
 
         # Update selection end if shift is pressed
-        if shift_pressed:
+        if shift_pressed or cmd_pressed:
             self.selection_end = (self.current_line, self.cursor_pos)
         else:
             self.selection_start = None
