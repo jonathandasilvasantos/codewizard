@@ -32,9 +32,18 @@ class TextEditor:
         self.is_selecting = False
 
     def delete_selection(self):
-        if self.selection_start and self.selection_end:
+        """
+        Deletes the text between selection_start and selection_end.
+        Resets the selection after deleting.
+        """
+        if self.selection_start is not None and self.selection_end is not None:
             start_line, start_pos = self.selection_start
             end_line, end_pos = self.selection_end
+
+            # Guard against invalid selections
+            if start_line > end_line or (start_line == end_line and start_pos > end_pos):
+                # You could either raise an exception or just return
+                return
 
             # Same line selection
             if start_line == end_line:
@@ -42,8 +51,12 @@ class TextEditor:
                 self.cursor_pos = start_pos
             else:
                 # Merge lines from start_line to end_line and delete the in-between lines
-                self.lines[start_line] = self.lines[start_line][:start_pos] + self.lines[end_line][end_pos:]
+                start_line_content = self.lines[start_line][:start_pos]
+                end_line_content = self.lines[end_line][end_pos:]
+                
+                self.lines[start_line] = start_line_content + end_line_content
                 del self.lines[start_line + 1:end_line + 1]
+                
                 self.cursor_pos = start_pos
                 self.current_line = start_line
 
@@ -93,6 +106,14 @@ class TextEditor:
         else:
             self.selection_start = None
             self.selection_end = None
+
+        if self.selection_end and self.selection_start:
+            if self.selection_start > self.selection_end:
+                s_ = self.selection_start
+                e_ = self.selection_end
+                self.selection_start = e_
+                self.selection_end = s_
+
    
     def handle_backspace(self):
         if self.selection_start is not None and self.selection_end is not None:
