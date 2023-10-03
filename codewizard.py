@@ -18,6 +18,9 @@ FUNDODARK = (30, 30, 30)
 TEXTOBRIGHT = (230, 230, 230)
 BRANCO = (255, 255, 255)
 SELECAOBRIGHT = (50, 50, 150)
+LINE_NUMBER_WIDTH = 50
+LINE_NUMBER_COLOR = (80, 80, 80)
+LINE_NUMBER_TEXT_COLOR = (150, 150, 150)
 
 
 # Font
@@ -314,12 +317,25 @@ class TextEditor:
         self.lines[self.current_line] = self.lines[self.current_line][:self.cursor_pos] + char + self.lines[self.current_line][self.cursor_pos:]
         self.cursor_pos += 1
 
+    def draw_line_number(self, surface, index, line_number):
+        text_surface = self.font.render(str(line_number), True, LINE_NUMBER_TEXT_COLOR)
+        surface.blit(text_surface, (10, index * 30))
+
+
     def draw(self, surface):
         surface.fill(FUNDODARK)
+
+        # Draw the vertical line number bar
+        pygame.draw.rect(surface, LINE_NUMBER_COLOR, (0, 0, LINE_NUMBER_WIDTH, ALTURA))
+
+
         for index, line in enumerate(self.lines[self.scroll_offset:]):
             if index * 30 > ALTURA:
                 break
+            line_number = index + self.scroll_offset + 1
+            self.draw_line_number(surface, index, line_number)
             self.draw_line(surface, index, line)
+
 
         
     def draw_line(self, surface, index, line):
@@ -329,6 +345,10 @@ class TextEditor:
 
         # First, let's handle the selection background:
         SELECTION_COLOR = SELECAOBRIGHT
+
+        # Default starting point for the non-selected text rendering:
+        # Incremented by the width of three characters for padding
+        x_pos = 10 + self.font.size('XXX')[0]
 
         if self.selection_start is not None and self.selection_end is not None:
             start_line, start_pos = min(self.selection_start, self.selection_end)
@@ -348,23 +368,45 @@ class TextEditor:
                     x1 = 0
                     x2 = self.font.size(line)[0]
 
-                pygame.draw.rect(surface, SELECTION_COLOR, (10 + x1, index * 30, x2 - x1, 30))
+                pygame.draw.rect(surface, SELECTION_COLOR, (x_pos + x1, index * 30, x2 - x1, 30))
                 
-                # Render the selected text with an inverted color (e.g., white)
+                # Render the segments of the line:
+                # 1. Before selection
+                before_text = self.font.render(line[:start_pos], True, TEXTOBRIGHT)
+                surface.blit(before_text, (x_pos, index * 30))
+                x_pos += self.font.size(line[:start_pos])[0]
+
+                # 2. Selected text
                 selected_text = self.font.render(line[start_pos:end_pos], True, BRANCO)
-                surface.blit(selected_text, (10 + x1, index * 30))
+                surface.blit(selected_text, (x_pos, index * 30))
+                x_pos += self.font.size(line[start_pos:end_pos])[0]
+
+                # 3. After selection
+                after_text = self.font.render(line[end_pos:], True, TEXTOBRIGHT)
+                surface.blit(after_text, (x_pos, index * 30))
+
+                return  # Return early since we've already handled this line's rendering.
 
         # Render the non-selected text
         rendered_text = self.font.render(line, True, TEXTOBRIGHT)
-        surface.blit(rendered_text, (10, index * 30))
+        surface.blit(rendered_text, (x_pos, index * 30))
 
         # And finally, render the cursor if the current line matches:
         if index == self.current_line - self.scroll_offset:
             self.draw_cursor(surface, index)
 
     def draw_cursor(self, surface, index):
+        # Calculate the width of three characters to create the desired padding.
+        three_char_width = self.font.size('XXX')[0]
+
         cursor_offset = self.font.size(self.lines[self.current_line][:self.cursor_pos - self.horizontal_scroll_offset])[0]
-        pygame.draw.line(surface, TEXTOBRIGHT, (10 + cursor_offset, index * 30), (10 + cursor_offset, index * 30 + 24), 2)
+        
+        # Offset by the width of three characters.
+        pygame.draw.line(surface, TEXTOBRIGHT, 
+                        (10 + three_char_width + cursor_offset, index * 30), 
+                        (10 + three_char_width + cursor_offset, index * 30 + 24), 
+                        2)
+
 
     def push_undo(self):
         """Pushes the current state to the undo stack."""
@@ -393,8 +435,6 @@ class TextEditor:
             self.lines = [line.rstrip() for line in self.lines]
         except Exception as e:
             print(f"Error loading file: {e}")
-
-
 
 
 if __name__ == "__main__":
