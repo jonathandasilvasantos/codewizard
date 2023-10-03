@@ -1,9 +1,11 @@
+import sys
 import pyperclip 
 import pygame
 from pygame.locals import *
 
 pygame.init()
 pygame.key.set_repeat(300, 50)  # Start repeating after 300ms, repeat every 50ms thereafter
+
 
 # Screen settings
 LARGURA = 800
@@ -382,19 +384,40 @@ class TextEditor:
             self.lines = self.redo_stack.pop()
 
 
-editor = TextEditor(fonte)
+    def load_file(self, filename):
+        try:
+            with open(filename, 'r') as f:
+                self.lines = f.readlines()
+            # Remove newline characters from the end of each line
+            self.lines = [line.rstrip() for line in self.lines]
+        except Exception as e:
+            print(f"Error loading file: {e}")
 
-rodando = True
-clock = pygame.time.Clock()
-while rodando:
-    for event in pygame.event.get():
-        if event.type == QUIT:
-            rodando = False
-        elif event.type == KEYDOWN:
-            editor.input(event)
 
-    editor.draw(tela)
-    pygame.display.flip()
-    clock.tick(60)
 
-pygame.quit()
+
+if __name__ == "__main__":
+
+    # Create an instance of your TextEditor
+    editor = TextEditor(fonte)
+
+    if len(sys.argv) > 1:
+        filename = sys.argv[1]
+        editor.load_file(filename)
+        
+
+
+    rodando = True
+    clock = pygame.time.Clock()
+    while rodando:
+        for event in pygame.event.get():
+            if event.type == QUIT:
+                rodando = False
+            elif event.type == KEYDOWN:
+                editor.input(event)
+
+        editor.draw(tela)
+        pygame.display.flip()
+        clock.tick(60)
+
+    pygame.quit()
