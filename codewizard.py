@@ -31,6 +31,7 @@ class TextEditor:
         self.selection_start = None
         self.selection_end = None
         self.is_selecting = False
+        self.horizontal_scroll_offset = 0
 
     def copy_text(self):
         if self.selection_start is not None and self.selection_end is not None:
@@ -103,29 +104,27 @@ class TextEditor:
 
 
     def input(self, event):
-        cmd_pressed = event.mod & (KMOD_LMETA | KMOD_RMETA) or event.mod & (KMOD_LCTRL | KMOD_RCTRL)  # Check for Command key (or Ctrl key for non-Mac users)
-        shift_pressed = event.mod & KMOD_SHIFT
-
-        # Handle copy, paste and cut features
-        if cmd_pressed:
+        CMD_PRESSED = event.mod & (KMOD_LMETA | KMOD_RMETA) or event.mod & (KMOD_LCTRL | KMOD_RCTRL)  # Check for Command key (or Ctrl key for non-Mac users)
+        SHIFT_PRESSED = event.mod & KMOD_SHIFT
+        
+        # Handle combination of CMD key and other keys
+        if CMD_PRESSED:
             if event.key == K_c:
                 self.copy_text()
             elif event.key == K_v:
                 self.paste_text()
             elif event.key == K_x:
                 self.cut_text()
+            elif event.key == K_LEFT:
+                self.horizontal_scroll(-1)
+                self.jump_to_start_of_line()
+            elif event.key == K_RIGHT:
+                self.horizontal_scroll(1)
+                self.jump_to_end_of_line()
             return
-    
-        # Handle SHIFT (Selection) behaviour
-        if shift_pressed:
-            if self.selection_start is None:
-                self.selection_start = (self.current_line, self.cursor_pos)
-            
-        if cmd_pressed and event.key == K_LEFT:
-            self.jump_to_start_of_line()
-        elif cmd_pressed and event.key == K_RIGHT:
-            self.jump_to_end_of_line()
-        elif event.key == K_BACKSPACE:
+
+        # Handle single key events
+        if event.key == K_BACKSPACE:
             self.handle_backspace()
         elif event.key == K_RETURN:
             self.handle_return()
@@ -137,32 +136,36 @@ class TextEditor:
             self.handle_left()
         elif event.key == K_RIGHT:
             self.handle_right()
-            # ...
         elif event.key == K_DELETE:
             self.handle_delete()
         elif event.key == K_PAGEUP:
             self.handle_pageup()
         elif event.key == K_PAGEDOWN:
             self.handle_pagedown()
-            
         else:
             self.handle_character_input(event.unicode)
-
-        # Update selection end if shift is pressed
-        if shift_pressed or cmd_pressed:
+            
+        # Handle SHIFT (Selection) behaviour
+        if SHIFT_PRESSED and self.selection_start is None:
+            self.selection_start = (self.current_line, self.cursor_pos)
+        
+        # Update selection end if SHIFT or CMD is pressed
+        if SHIFT_PRESSED or CMD_PRESSED:
             self.selection_end = (self.current_line, self.cursor_pos)
+            
+            # Swap selection start and end if necessary
+            if self.selection_start > self.selection_end:
+                self.selection_start, self.selection_end = self.selection_end, self.selection_start
         else:
             self.selection_start = None
             self.selection_end = None
 
-        if self.selection_end and self.selection_start:
-            if self.selection_start > self.selection_end:
-                s_ = self.selection_start
-                e_ = self.selection_end
-                self.selection_start = e_
-                self.selection_end = s_
-
    
+    def horizontal_scroll(self, amount):
+        max_offset = max(0, len(max(self.lines, key=len)) - LARGURA // 8)  # estimated, adjust as needed
+        self.horizontal_scroll_offset = min(max(0, self.horizontal_scroll_offset + amount), max_offset)
+
+
     def handle_backspace(self):
         if self.selection_start is not None and self.selection_end is not None:
             self.delete_selection()
@@ -232,8 +235,6 @@ class TextEditor:
     def jump_to_end_of_line(self):
         self.cursor_pos = len(self.lines[self.current_line])
 
-
-
     def remove_char_at_cursor(self):
         self.lines[self.current_line] = self.lines[self.current_line][:self.cursor_pos-1] + self.lines[self.current_line][self.cursor_pos:]
         self.cursor_pos -= 1
@@ -285,18 +286,12 @@ class TextEditor:
                 break
             self.draw_line(surface, index, line)
 
-        def input(self, event):
-            cmd_pressed = event.mod & (KMOD_LMETA | KMOD_RMETA) or event.mod & (KMOD_LCTRL | KMOD_RCTRL)  # Check for Command key (or Ctrl key for non-Mac users)
-            shift_pressed = event.mod & KMOD_SHIFT
-
-            # Handle SHIFT (Selection) behaviour
-            if shift_pressed:
-                if self.selection_start is None:
-                    self.selection_start = (self.current_line, self.cursor_pos)
-
-
-
+        
     def draw_line(self, surface, index, line):
+
+        # Adjust horizontal scroll
+        line = line[self.horizontal_scroll_offset:]
+
         # First, let's handle the selection background:
         SELECTION_COLOR = SELECAOBRIGHT
 
@@ -333,7 +328,7 @@ class TextEditor:
             self.draw_cursor(surface, index)
 
     def draw_cursor(self, surface, index):
-        cursor_offset = self.font.size(self.lines[self.current_line][:self.cursor_pos])[0]
+        cursor_offset = self.font.size(self.lines[self.current_line][:self.cursor_pos - self.horizontal_scroll_offset])[0]
         pygame.draw.line(surface, TEXTOBRIGHT, (10 + cursor_offset, index * 30), (10 + cursor_offset, index * 30 + 24), 2)
 
 
