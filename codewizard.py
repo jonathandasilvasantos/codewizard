@@ -202,25 +202,38 @@ class TextEditor:
     def handle_left(self):
         if self.cursor_pos > 0:
             self.move_cursor_left()
+            # Check if we need to scroll to the left
+            current_line_rendered_width = self.font.size(self.lines[self.current_line][:self.cursor_pos])[0]
+            if current_line_rendered_width < self.horizontal_scroll_offset * 8:  # Adjust the number as needed
+                self.horizontal_scroll_offset -= 1
         elif self.current_line > 0:
             self.jump_to_end_of_previous_line()
-        else:
-            self.horizontal_scroll(-1)  # Add this line for left scrolling
 
 
     def handle_right(self):
         if self.cursor_pos < len(self.lines[self.current_line]):
             self.move_cursor_right()
+            # Check if we need to scroll to the right
+            current_line_rendered_width = self.font.size(self.lines[self.current_line][:self.cursor_pos])[0]
+            if current_line_rendered_width > LARGURA - 20:  # 20 as a buffer to see the cursor
+                self.horizontal_scroll_offset += 1
         elif self.current_line < len(self.lines) - 1:
             self.jump_to_start_of_next_line()
-        else:
-            self.horizontal_scroll(1)  # Add this line for right scrolling
+
+
+
 
     def handle_character_input(self, char):
         if char:
             if self.selection_start is not None and self.selection_end is not None:
                 self.delete_selection()
             self.insert_char_at_cursor(char)
+            
+            # Check if we need to scroll to the right
+            current_line_rendered_width = self.font.size(self.lines[self.current_line][:self.cursor_pos])[0]
+            if current_line_rendered_width > LARGURA - 20:  # 20 as a buffer to see the cursor
+                self.horizontal_scroll_offset += 1
+
 
     def handle_pageup(self):
         # Move the cursor up by the height of the window in lines.
