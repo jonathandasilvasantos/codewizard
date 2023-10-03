@@ -204,12 +204,17 @@ class TextEditor:
             self.move_cursor_left()
         elif self.current_line > 0:
             self.jump_to_end_of_previous_line()
+        else:
+            self.horizontal_scroll(-1)  # Add this line for left scrolling
+
 
     def handle_right(self):
         if self.cursor_pos < len(self.lines[self.current_line]):
             self.move_cursor_right()
         elif self.current_line < len(self.lines) - 1:
             self.jump_to_start_of_next_line()
+        else:
+            self.horizontal_scroll(1)  # Add this line for right scrolling
 
     def handle_character_input(self, char):
         if char:
