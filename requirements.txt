@@ -1,2 +1,7 @@
+imageio==2.31.5
+imageio-ffmpeg==0.4.9
+numpy==1.26.0
+Pillow==10.0.1
+psutil==5.9.5
 pygame==2.5.2
 pyperclip==1.8.2

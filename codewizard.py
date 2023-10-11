@@ -1,6 +1,8 @@
 import sys
 import pyperclip 
 import pygame
+import imageio
+import sys
 from pygame.locals import *
 
 pygame.init()
@@ -39,6 +41,8 @@ class TextEditor:
         self.horizontal_scroll_offset = 0
         self.undo_stack = []
         self.redo_stack = []
+        self.cursor_visible = True
+        self.last_cursor_toggle_time = pygame.time.get_ticks()  # Initialize with the current time
         
 
     def copy_text(self):
@@ -396,6 +400,14 @@ class TextEditor:
             self.draw_cursor(surface, index)
 
     def draw_cursor(self, surface, index):
+        current_time = pygame.time.get_ticks()
+        if current_time - self.last_cursor_toggle_time > 500:  # If 500ms have passed since the last toggle
+            self.cursor_visible = not self.cursor_visible
+            self.last_cursor_toggle_time = current_time
+        
+        if not self.cursor_visible:  # If the cursor is not visible, return early
+            return
+        
         # Calculate the width of three characters to create the desired padding.
         three_char_width = self.font.size('XXX')[0]
 
@@ -406,7 +418,6 @@ class TextEditor:
                         (10 + three_char_width + cursor_offset, index * 30), 
                         (10 + three_char_width + cursor_offset, index * 30 + 24), 
                         2)
-
 
     def push_undo(self):
         """Pushes the current state to the undo stack."""
@@ -445,11 +456,13 @@ if __name__ == "__main__":
     if len(sys.argv) > 1:
         filename = sys.argv[1]
         editor.load_file(filename)
-        
-
 
     rodando = True
     clock = pygame.time.Clock()
+
+    # Create a list to store frames
+    frames = []
+
     while rodando:
         for event in pygame.event.get():
             if event.type == QUIT:
@@ -459,6 +472,14 @@ if __name__ == "__main__":
 
         editor.draw(tela)
         pygame.display.flip()
+
+        # Capture the frame and append to the list
+        frame_data = pygame.surfarray.array3d(pygame.display.get_surface())
+        frames.append(frame_data.transpose([1, 0, 2]))
+
         clock.tick(60)
 
     pygame.quit()
+
+    # Save frames as MP4 video
+    imageio.mimwrite('output_video.mp4', frames, fps=60)
