@@ -1,9 +1,8 @@
 import sys
-import pyperclip 
 import pygame
-import imageio
-import sys
+import pyperclip
 from pygame.locals import *
+
 
 pygame.init()
 pygame.key.set_repeat(300, 50)  # Start repeating after 300ms, repeat every 50ms thereafter
@@ -195,12 +194,14 @@ class TextEditor:
         elif self.current_line > 0:
             self.merge_with_previous_line()
 
+
     def handle_return(self):
         self.push_undo()  # Push current state onto undo stack before making changes
         self.split_line_at_cursor()
-        # Check if current line is beyond the visible portion of the screen.
-        if self.current_line - self.scroll_offset >= ALTURA // 30:
-            self.scroll_offset += 1
+        self.update_vertical_scroll()
+        self.update_horizontal_scroll()
+
+
 
     def handle_delete(self):
         self.push_undo()  # Push current state onto undo stack before making changes
@@ -214,36 +215,58 @@ class TextEditor:
             self.lines[self.current_line] += self.lines[self.current_line + 1]
             del self.lines[self.current_line + 1]
 
+    
     def handle_up(self):
         if self.current_line > 0:
-            self.move_cursor_up()
+            self.current_line -= 1
+            self.cursor_pos = min(self.cursor_pos, len(self.lines[self.current_line]))
+        self.update_vertical_scroll()
+
 
     def handle_down(self):
         if self.current_line < len(self.lines) - 1:
-            self.move_cursor_down()
+            self.current_line += 1
+            self.cursor_pos = min(self.cursor_pos, len(self.lines[self.current_line]))
+        self.update_vertical_scroll()
+        self.update_horizontal_scroll()
+
+
 
     def handle_left(self):
         if self.cursor_pos > 0:
-            self.move_cursor_left()
-            # Check if we need to scroll to the left
-            current_line_rendered_width = self.font.size(self.lines[self.current_line][:self.cursor_pos])[0]
-            if current_line_rendered_width < self.horizontal_scroll_offset * 8:  # Adjust the number as needed
-                self.horizontal_scroll_offset -= 1
+            self.cursor_pos -= 1
+            self.update_horizontal_scroll()
         elif self.current_line > 0:
             self.jump_to_end_of_previous_line()
 
-
     def handle_right(self):
         if self.cursor_pos < len(self.lines[self.current_line]):
-            self.move_cursor_right()
-            # Check if we need to scroll to the right
-            current_line_rendered_width = self.font.size(self.lines[self.current_line][:self.cursor_pos])[0]
-            if current_line_rendered_width > LARGURA - 20:  # 20 as a buffer to see the cursor
-                self.horizontal_scroll_offset += 1
+            self.cursor_pos += 1
+            self.update_horizontal_scroll()
         elif self.current_line < len(self.lines) - 1:
             self.jump_to_start_of_next_line()
 
 
+    def update_vertical_scroll(self):
+        visible_lines = ALTURA // self.font.get_height()
+        if self.current_line < self.scroll_offset:
+            self.scroll_offset = self.current_line
+        elif self.current_line >= self.scroll_offset + visible_lines:
+            self.scroll_offset = self.current_line - visible_lines + 1
+
+    def update_horizontal_scroll(self):
+        char_width = self.font.size(' ')[0]
+        visible_chars = LARGURA // char_width
+        cursor_x = self.font.size(self.lines[self.current_line][:self.cursor_pos])[0]
+
+        # Scroll right if the cursor is near the right edge of the visible area
+        if cursor_x - self.horizontal_scroll_offset > LARGURA - char_width * 10:
+            self.horizontal_scroll_offset = min(cursor_x - LARGURA + char_width * 10, 
+                                                max(0, len(self.lines[self.current_line]) * char_width - LARGURA))
+
+        # Scroll left if the cursor is near the left edge of the visible area
+        elif cursor_x < self.horizontal_scroll_offset + char_width * 10:
+            self.horizontal_scroll_offset = max(0, cursor_x - char_width * 10)
 
 
     def handle_character_input(self, char):
@@ -259,20 +282,25 @@ class TextEditor:
                 self.horizontal_scroll_offset += 1
 
 
+
+    # Modify handle_pageup and handle_pagedown to adjust scroll_offset directly
     def handle_pageup(self):
-        # Move the cursor up by the height of the window in lines.
-        for _ in range(ALTURA // 30):
-            if self.current_line > 0:
-                self.move_cursor_up()
+        visible_lines = ALTURA // self.font.get_height()
+        self.current_line = max(0, self.current_line - visible_lines)
+        self.update_vertical_scroll()
+        self.update_horizontal_scroll()
 
     def handle_pagedown(self):
-        # Move the cursor down by the height of the window in lines.
-        for _ in range(ALTURA // 30):
-            if self.current_line < len(self.lines) - 1:
-                self.move_cursor_down()
+        visible_lines = ALTURA // self.font.get_height()
+        self.current_line = min(len(self.lines) - 1, self.current_line + visible_lines)
+        self.update_vertical_scroll()
+        self.update_horizontal_scroll()
+
 
     def jump_to_start_of_line(self):
         self.cursor_pos = 0
+        self.horizontal_scroll_offset = 0  # Reset horizontal scroll to the start of the line
+
 
     def jump_to_end_of_line(self):
         self.cursor_pos = len(self.lines[self.current_line])
@@ -294,14 +322,18 @@ class TextEditor:
         self.cursor_pos = 0
 
     def move_cursor_up(self):
-        self.current_line -= 1
-        if self.current_line < self.scroll_offset:
-            self.scroll_offset -= 1
+        if self.current_line > 0:
+            self.current_line -= 1
+            visible_lines = ALTURA // self.font.get_height()
+            self.scroll_offset = max(0, min(self.scroll_offset, self.current_line - visible_lines // 2))
 
     def move_cursor_down(self):
-        self.current_line += 1
-        if self.current_line - self.scroll_offset > ALTURA // 30 - 2:
-            self.scroll_offset += 1
+        if self.current_line < len(self.lines) - 1:
+            self.current_line += 1
+            visible_lines = ALTURA // self.font.get_height()
+            self.scroll_offset = min(max(self.scroll_offset, self.current_line - visible_lines // 2), len(self.lines) - visible_lines)
+
+
 
     def move_cursor_left(self):
         self.cursor_pos -= 1
