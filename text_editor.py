@@ -3,7 +3,6 @@ import pyperclip
 from pygame.locals import *
 from constants import *
 
-
 class ClipboardManager:
     @staticmethod
     def copy_text(lines, selection_start, selection_end):
@@ -34,8 +33,10 @@ class ClipboardManager:
 
 
 class TextEditor:
-    def __init__(self, font):
-        self.font = font
+    def __init__(self, font_path, font_size):
+        self.font_path = font_path
+        self.font_size = font_size
+        self.font = pygame.font.Font(font_path, font_size)
         self.lines = ['']
         self.current_line = 0
         self.cursor_pos = 0
@@ -48,6 +49,21 @@ class TextEditor:
         self.redo_stack = []
         self.cursor_visible = True
         self.last_cursor_toggle_time = pygame.time.get_ticks()
+
+    def zoom_in(self):
+        self.font_size += 2
+        self.font = pygame.font.Font(self.font_path, self.font_size)
+        self.update_scroll_offsets()
+
+    def zoom_out(self):
+        if self.font_size > 6:  # Minimum font size to avoid too small text
+            self.font_size -= 2
+            self.font = pygame.font.Font(self.font_path, self.font_size)
+            self.update_scroll_offsets()
+
+    def update_scroll_offsets(self):
+        self.update_vertical_scroll()
+        self.update_horizontal_scroll()
 
     def copy_text(self):
         ClipboardManager.copy_text(self.lines, self.selection_start, self.selection_end)
@@ -72,6 +88,10 @@ class TextEditor:
 
         if start_line > end_line or (start_line == end_line and start_pos > end_pos):
             start_line, start_pos, end_line, end_pos = end_line, end_pos, start_line, start_pos
+
+        # Ensure start_pos and end_pos are within valid ranges
+        start_pos = min(start_pos, len(self.lines[start_line]))
+        end_pos = min(end_pos, len(self.lines[end_line]))
 
         if start_line == end_line:
             self.lines[start_line] = self.lines[start_line][:start_pos] + self.lines[start_line][end_pos:]
@@ -100,6 +120,10 @@ class TextEditor:
                 self.paste_text()
             elif event.key == K_x:
                 self.cut_text()
+            elif event.key == K_PLUS or event.key == K_EQUALS:  # Command+ and Command= for zoom in
+                self.zoom_in()
+            elif event.key == K_MINUS:  # Command- for zoom out
+                self.zoom_out()
             elif event.key == K_LEFT:
                 self.horizontal_scroll(-1)
                 self.jump_to_start_of_line()
@@ -198,6 +222,18 @@ class TextEditor:
             self.update_horizontal_scroll()
         elif self.current_line < len(self.lines) - 1:
             self.jump_to_start_of_next_line()
+
+    def jump_to_end_of_previous_line(self):
+        self.current_line -= 1
+        self.cursor_pos = len(self.lines[self.current_line])
+        self.update_vertical_scroll()
+        self.update_horizontal_scroll()
+
+    def jump_to_start_of_next_line(self):
+        self.current_line += 1
+        self.cursor_pos = 0
+        self.update_vertical_scroll()
+        self.update_horizontal_scroll()
 
     def update_vertical_scroll(self):
         visible_lines = ALTURA // self.font.get_height()

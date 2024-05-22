@@ -4,7 +4,7 @@ import pyperclip
 from pygame.locals import *
 from constants import *
 from text_editor import TextEditor
-
+import imageio
 
 pygame.init()
 pygame.key.set_repeat(300, 50)  # Start repeating after 300ms, repeat every 50ms thereafter
@@ -12,12 +12,13 @@ pygame.key.set_repeat(300, 50)  # Start repeating after 300ms, repeat every 50ms
 tela = pygame.display.set_mode((LARGURA, ALTURA))
 pygame.display.set_caption('Code Wizard')
 
-fonte = pygame.font.SysFont('arial', 24)
+fonte_path = pygame.font.match_font('arial')
+fonte_size = 24
 
 if __name__ == "__main__":
 
     # Create an instance of your TextEditor
-    editor = TextEditor(fonte)
+    editor = TextEditor(fonte_path, fonte_size)
 
     if len(sys.argv) > 1:
         filename = sys.argv[1]
