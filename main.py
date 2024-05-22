@@ -20,15 +20,18 @@ if __name__ == "__main__":
     # Create an instance of your TextEditor
     editor = TextEditor(fonte_path, fonte_size)
 
-    if len(sys.argv) > 1:
+    if len(sys.argv) > 1 and sys.argv[1] != '--output-video':
         filename = sys.argv[1]
         editor.load_file(filename)
 
     rodando = True
     clock = pygame.time.Clock()
 
-    # Create a list to store frames
-    frames = []
+    # Check if --output-video is in the command line arguments
+    output_video = '--output-video' in sys.argv
+
+    # Create a list to store frames if output_video is True
+    frames = [] if output_video else None
 
     while rodando:
         for event in pygame.event.get():
@@ -36,17 +39,21 @@ if __name__ == "__main__":
                 rodando = False
             elif event.type == KEYDOWN:
                 editor.input(event)
+            elif event.type == MOUSEBUTTONDOWN or event.type == MOUSEBUTTONUP or event.type == MOUSEMOTION:
+                editor.handle_mouse_event(event)
 
         editor.draw(tela)
         pygame.display.flip()
 
-        # Capture the frame and append to the list
-        frame_data = pygame.surfarray.array3d(pygame.display.get_surface())
-        frames.append(frame_data.transpose([1, 0, 2]))
+        # Capture the frame and append to the list if output_video is True
+        if output_video:
+            frame_data = pygame.surfarray.array3d(pygame.display.get_surface())
+            frames.append(frame_data.transpose([1, 0, 2]))
 
         clock.tick(60)
 
     pygame.quit()
 
-    # Save frames as MP4 video
-    imageio.mimwrite('output_video.mp4', frames, fps=60)
+    # Save frames as MP4 video if output_video is True
+    if output_video:
+        imageio.mimwrite('output_video.mp4', frames, fps=60)

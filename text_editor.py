@@ -49,6 +49,9 @@ class TextEditor:
         self.redo_stack = []
         self.cursor_visible = True
         self.last_cursor_toggle_time = pygame.time.get_ticks()
+        self.drawing = False
+        self.draw_color = (255, 255, 255)
+        self.drawings = []  # Store drawing coordinates
 
     def zoom_in(self):
         self.font_size += 2
@@ -318,6 +321,8 @@ class TextEditor:
             self.draw_line_number(surface, index, line_number)
             self.draw_line(surface, index, line)
 
+        self.draw_drawings(surface)
+
     def draw_line(self, surface, index, line):
         line = line[self.horizontal_scroll_offset:]
 
@@ -401,3 +406,25 @@ class TextEditor:
             self.lines = [line.rstrip() for line in self.lines]
         except Exception as e:
             print(f"Error loading file: {e}")
+
+    def handle_mouse_event(self, event):
+        if event.type == MOUSEBUTTONDOWN:
+            if event.button == 1:  # Left mouse button
+                self.drawing = True
+                self.add_drawing_point(event.pos)
+        elif event.type == MOUSEBUTTONUP:
+            if event.button == 1:  # Left mouse button
+                self.drawing = False
+        elif event.type == MOUSEMOTION:
+            if self.drawing:
+                self.add_drawing_point(event.pos)
+
+    def add_drawing_point(self, pos):
+        self.drawings.append((pos[0] + self.horizontal_scroll_offset, pos[1] + self.scroll_offset * 30))
+
+    def draw_drawings(self, surface):
+        for point in self.drawings:
+            adjusted_x = point[0] - self.horizontal_scroll_offset
+            adjusted_y = point[1] - self.scroll_offset * 30
+            if 0 <= adjusted_y < ALTURA:
+                pygame.draw.circle(surface, self.draw_color, (adjusted_x, adjusted_y), 2)
