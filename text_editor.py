@@ -21,28 +21,30 @@ class TextEditor:
         self.last_cursor_toggle_time = pygame.time.get_ticks()
 
     def copy_text(self):
-        if self.selection_start is not None and self.selection_end is not None:
+        if self.selection_start and self.selection_end:
             start_line, start_pos = self.selection_start
             end_line, end_pos = self.selection_end
             
             if start_line == end_line:
                 pyperclip.copy(self.lines[start_line][start_pos:end_pos])
             else:
-                copied_text = self.lines[start_line][start_pos:]
+                copied_text = self.lines[start_line][start_pos:] + '\n'
                 for line_num in range(start_line + 1, end_line):
-                    copied_text += '\n' + self.lines[line_num]
-                copied_text += '\n' + self.lines[end_line][:end_pos]
+                    copied_text += self.lines[line_num] + '\n'
+                copied_text += self.lines[end_line][:end_pos]
                 pyperclip.copy(copied_text)
                 
     def paste_text(self):
         self.push_undo()
-        if self.selection_start is not None and self.selection_end is not None:
+        if self.selection_start and self.selection_end:
             self.delete_selection()
         
         clipboard_content = pyperclip.paste().split('\n')
         for idx, content in enumerate(clipboard_content):
             if idx == 0:
-                self.lines[self.current_line] = self.lines[self.current_line][:self.cursor_pos] + content + self.lines[self.current_line][self.cursor_pos:]
+                self.lines[self.current_line] = (self.lines[self.current_line][:self.cursor_pos] + 
+                                                 content + 
+                                                 self.lines[self.current_line][self.cursor_pos:])
                 self.cursor_pos += len(content)
             else:
                 self.lines.insert(self.current_line + idx, content)
@@ -55,7 +57,7 @@ class TextEditor:
         self.delete_selection()
 
     def delete_selection(self):
-        if self.selection_start is None or self.selection_end is None:
+        if not self.selection_start or not self.selection_end:
             return
 
         start_line, start_pos = self.selection_start
@@ -97,7 +99,7 @@ class TextEditor:
             elif event.key == K_RIGHT:
                 self.horizontal_scroll(1)
                 self.jump_to_end_of_line()
-            if event.key == K_z:
+            elif event.key == K_z:
                 if SHIFT_PRESSED:
                     self.redo()
                 else:
@@ -125,12 +127,10 @@ class TextEditor:
         else:
             self.handle_character_input(event.unicode)
             
-        if SHIFT_PRESSED and self.selection_start is None:
-            self.selection_start = (self.current_line, self.cursor_pos)
-
-        if SHIFT_PRESSED or CMD_PRESSED:
+        if SHIFT_PRESSED:
+            if not self.selection_start:
+                self.selection_start = (self.current_line, self.cursor_pos)
             self.selection_end = (self.current_line, self.cursor_pos)
-            
         else:
             self.selection_start = None
             self.selection_end = None
@@ -141,7 +141,7 @@ class TextEditor:
 
     def handle_backspace(self):
         self.push_undo()
-        if self.selection_start is not None and self.selection_end is not None:
+        if self.selection_start and self.selection_end:
             self.delete_selection()
         elif self.cursor_pos > 0:
             self.remove_char_at_cursor()
@@ -156,10 +156,11 @@ class TextEditor:
 
     def handle_delete(self):
         self.push_undo()
-        if self.selection_start is not None and self.selection_end is not None:
+        if self.selection_start and self.selection_end:
             self.delete_selection()
         elif self.cursor_pos < len(self.lines[self.current_line]):
-            self.lines[self.current_line] = self.lines[self.current_line][:self.cursor_pos] + self.lines[self.current_line][self.cursor_pos + 1:]
+            self.lines[self.current_line] = (self.lines[self.current_line][:self.cursor_pos] + 
+                                             self.lines[self.current_line][self.cursor_pos + 1:])
         elif self.current_line < len(self.lines) - 1:
             self.lines[self.current_line] += self.lines[self.current_line + 1]
             del self.lines[self.current_line + 1]
@@ -212,7 +213,7 @@ class TextEditor:
     def handle_character_input(self, char):
         if char:
             self.push_undo()
-            if self.selection_start is not None and self.selection_end is not None:
+            if self.selection_start and self.selection_end:
                 self.delete_selection()
             self.insert_char_at_cursor(char)
             
@@ -306,9 +307,9 @@ class TextEditor:
         SELECTION_COLOR = SELECAOBRIGHT
         x_pos = 10 + self.font.size('XXX')[0]
 
-        if self.selection_start is not None and self.selection_end is not None:
-            start_line, start_pos = min(self.selection_start, self.selection_end)
-            end_line, end_pos = max(self.selection_start, self.selection_end)
+        if self.selection_start and self.selection_end:
+            start_line, start_pos = self.selection_start
+            end_line, end_pos = self.selection_end
 
             if start_line <= index + self.scroll_offset <= end_line:
                 if start_line == end_line:
