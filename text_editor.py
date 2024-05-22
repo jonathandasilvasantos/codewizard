@@ -4,6 +4,35 @@ from pygame.locals import *
 from constants import *
 
 
+class ClipboardManager:
+    @staticmethod
+    def copy_text(lines, selection_start, selection_end):
+        if selection_start and selection_end:
+            start_line, start_pos = selection_start
+            end_line, end_pos = selection_end
+            if start_line == end_line:
+                pyperclip.copy(lines[start_line][start_pos:end_pos])
+            else:
+                copied_text = lines[start_line][start_pos:] + '\n'
+                for line_num in range(start_line + 1, end_line):
+                    copied_text += lines[line_num] + '\n'
+                copied_text += lines[end_line][:end_pos]
+                pyperclip.copy(copied_text)
+
+    @staticmethod
+    def paste_text(lines, cursor_pos, current_line):
+        clipboard_content = pyperclip.paste().split('\n')
+        for idx, content in enumerate(clipboard_content):
+            if idx == 0:
+                lines[current_line] = lines[current_line][:cursor_pos] + content + lines[current_line][cursor_pos:]
+                cursor_pos += len(content)
+            else:
+                lines.insert(current_line + idx, content)
+                current_line += 1
+                cursor_pos = len(content)
+        return lines, cursor_pos, current_line
+
+
 class TextEditor:
     def __init__(self, font):
         self.font = font
@@ -21,35 +50,13 @@ class TextEditor:
         self.last_cursor_toggle_time = pygame.time.get_ticks()
 
     def copy_text(self):
-        if self.selection_start and self.selection_end:
-            start_line, start_pos = self.selection_start
-            end_line, end_pos = self.selection_end
-            
-            if start_line == end_line:
-                pyperclip.copy(self.lines[start_line][start_pos:end_pos])
-            else:
-                copied_text = self.lines[start_line][start_pos:] + '\n'
-                for line_num in range(start_line + 1, end_line):
-                    copied_text += self.lines[line_num] + '\n'
-                copied_text += self.lines[end_line][:end_pos]
-                pyperclip.copy(copied_text)
-                
+        ClipboardManager.copy_text(self.lines, self.selection_start, self.selection_end)
+
     def paste_text(self):
         self.push_undo()
         if self.selection_start and self.selection_end:
             self.delete_selection()
-        
-        clipboard_content = pyperclip.paste().split('\n')
-        for idx, content in enumerate(clipboard_content):
-            if idx == 0:
-                self.lines[self.current_line] = (self.lines[self.current_line][:self.cursor_pos] + 
-                                                 content + 
-                                                 self.lines[self.current_line][self.cursor_pos:])
-                self.cursor_pos += len(content)
-            else:
-                self.lines.insert(self.current_line + idx, content)
-                self.current_line += 1
-                self.cursor_pos = len(content)
+        self.lines, self.cursor_pos, self.current_line = ClipboardManager.paste_text(self.lines, self.cursor_pos, self.current_line)
 
     def cut_text(self):
         self.push_undo()
@@ -253,32 +260,6 @@ class TextEditor:
     def split_line_at_cursor(self):
         self.lines.insert(self.current_line + 1, self.lines[self.current_line][self.cursor_pos:])
         self.lines[self.current_line] = self.lines[self.current_line][:self.cursor_pos]
-        self.current_line += 1
-        self.cursor_pos = 0
-
-    def move_cursor_up(self):
-        if self.current_line > 0:
-            self.current_line -= 1
-            visible_lines = ALTURA // self.font.get_height()
-            self.scroll_offset = max(0, min(self.scroll_offset, self.current_line - visible_lines // 2))
-
-    def move_cursor_down(self):
-        if self.current_line < len(self.lines) - 1:
-            self.current_line += 1
-            visible_lines = ALTURA // self.font.get_height()
-            self.scroll_offset = min(max(self.scroll_offset, self.current_line - visible_lines // 2), len(self.lines) - visible_lines)
-
-    def move_cursor_left(self):
-        self.cursor_pos -= 1
-
-    def jump_to_end_of_previous_line(self):
-        self.current_line -= 1
-        self.cursor_pos = len(self.lines[self.current_line])
-
-    def move_cursor_right(self):
-        self.cursor_pos += 1
-
-    def jump_to_start_of_next_line(self):
         self.current_line += 1
         self.cursor_pos = 0
 
