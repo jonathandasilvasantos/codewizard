@@ -5,7 +5,7 @@ from pygame.locals import (
     K_BACKSPACE, K_DELETE, K_RETURN, K_LEFT, K_RIGHT, K_UP, K_DOWN,
     K_HOME, K_END, K_PAGEUP, K_PAGEDOWN,
     K_c, K_v, K_x, K_z,
-    KMOD_LCTRL, KMOD_RCTRL, KMOD_SHIFT,
+    KMOD_LCTRL, KMOD_RCTRL, KMOD_LMETA, KMOD_RMETA, KMOD_SHIFT,
     KEYDOWN, QUIT, MOUSEBUTTONDOWN, MOUSEBUTTONUP, MOUSEMOTION, MOUSEWHEEL, TEXTINPUT
 )
 
@@ -25,7 +25,7 @@ DRAWING_LINE_WIDTH = 2
 
 
 class TextEditor:
-    """A simple text editor built using pygame."""
+    """A simple text editor with drawing capability and improved undo/redo support."""
 
     def __init__(self, font: pygame.font.Font) -> None:
         self.font = font
@@ -36,44 +36,44 @@ class TextEditor:
         self.horizontal_scroll_offset: int = 0
         self.selection_start: Optional[Tuple[int, int]] = None
         self.selection_end: Optional[Tuple[int, int]] = None
+        # Undo/redo stacks storing (lines, current_line, cursor_pos, drawing_surface)
         self.undo_stack: List[Tuple[List[str], int, int, pygame.Surface]] = []
         self.redo_stack: List[Tuple[List[str], int, int, pygame.Surface]] = []
         self.cursor_visible: bool = True
         self.last_cursor_toggle_time: int = pygame.time.get_ticks()
 
         # Drawing surface for freehand drawing/erasing
-        self.drawing_surface = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
-        self.drawing_surface = self.drawing_surface.convert_alpha()
+        self.drawing_surface = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA).convert_alpha()
         self.drawing_scroll_offset: int = 0
 
         # Mouse drawing state
         self.left_button_down = False
         self.right_button_down = False
         self.last_pos: Optional[Tuple[int, int]] = None
+        self.drawing_in_progress = False  # Track drawing stroke as a single action
 
     def add_to_undo_stack(self) -> None:
-        """Add the current state to the undo stack and clear the redo stack."""
+        """Save the current state into the undo stack and clear the redo stack."""
         drawing_copy = self.drawing_surface.copy()
+        # Save a copy of text lines and the drawing surface.
         self.undo_stack.append((self.lines.copy(), self.current_line, self.cursor_pos, drawing_copy))
-        # Clear redo history on a new action
         self.redo_stack.clear()
-        # Optional: Limit the undo history to the last 100 states
+        # Limit the undo history to the last 100 states.
         if len(self.undo_stack) > 100:
             self.undo_stack.pop(0)
 
     def handle_event(self, event: pygame.event.EventType) -> None:
-        """Handle a pygame event."""
+        """Process a pygame event."""
         if event.type == TEXTINPUT:
-            # TEXTINPUT events provide fully composed text (e.g. accented characters)
             self.insert_character(event.text)
         elif event.type == KEYDOWN:
-            ctrl_pressed = event.mod & (KMOD_LCTRL | KMOD_RCTRL)
+            # Support both Control and Command (Meta) keys for shortcuts.
+            ctrl_cmd_pressed = event.mod & (KMOD_LCTRL | KMOD_RCTRL | KMOD_LMETA | KMOD_RMETA)
             shift_pressed = bool(event.mod & KMOD_SHIFT)
-            # Process control shortcuts
-            if ctrl_pressed:
+            if ctrl_cmd_pressed:
                 self.handle_ctrl_shortcuts(event, shift_pressed)
             else:
-                # For non-text keys (e.g. backspace, arrow keys, etc) add undo state first
+                # For keys that change text, record the state first.
                 if event.key in {
                     K_BACKSPACE, K_DELETE, K_RETURN, K_HOME, K_END,
                     K_PAGEUP, K_PAGEDOWN, K_LEFT, K_RIGHT, K_UP, K_DOWN
@@ -83,26 +83,29 @@ class TextEditor:
         elif event.type == MOUSEWHEEL:
             self.handle_scroll(event)
         elif event.type == MOUSEBUTTONDOWN:
-            if event.button == 1:  # Left mouse button (drawing)
-                self.add_to_undo_stack()
-                self.left_button_down = True
-                self.last_pos = (event.pos[0], event.pos[1] + self.drawing_scroll_offset)
-            elif event.button == 3:  # Right mouse button (erasing)
-                self.add_to_undo_stack()
-                self.right_button_down = True
+            # For drawing/erasing actions, start a new drawing stroke (if one isn’t already in progress)
+            if event.button in (1, 3):  # 1: left (drawing), 3: right (erasing)
+                if not self.drawing_in_progress:
+                    self.add_to_undo_stack()
+                    self.drawing_in_progress = True
+                if event.button == 1:
+                    self.left_button_down = True
+                elif event.button == 3:
+                    self.right_button_down = True
                 self.last_pos = (event.pos[0], event.pos[1] + self.drawing_scroll_offset)
         elif event.type == MOUSEBUTTONUP:
             if event.button == 1:
                 self.left_button_down = False
-                self.last_pos = None
             elif event.button == 3:
                 self.right_button_down = False
-                self.last_pos = None
+            # End drawing stroke.
+            self.drawing_in_progress = False
+            self.last_pos = None
         elif event.type == MOUSEMOTION:
             self.handle_mouse_motion(event)
 
     def handle_mouse_motion(self, event: pygame.event.EventType) -> None:
-        """Handle mouse movement for drawing/erasing."""
+        """Handle drawing/erasing during mouse motion."""
         if self.left_button_down or self.right_button_down:
             current_pos = (event.pos[0], event.pos[1] + self.drawing_scroll_offset)
             if self.last_pos is not None:
@@ -119,17 +122,15 @@ class TextEditor:
                 self.last_pos = current_pos
 
     def handle_scroll(self, event: pygame.event.EventType) -> None:
-        """Handle mouse wheel scrolling."""
+        """Handle vertical scrolling using the mouse wheel."""
         font_height = self.font.get_height()
         max_scroll_offset = max(0, len(self.lines) - HEIGHT // font_height + 1)
-
-        # Adjust vertical scrolling based on wheel movement
         self.scroll_offset = max(0, min(max_scroll_offset, self.scroll_offset - event.y))
         self.drawing_scroll_offset = self.scroll_offset * font_height
         self.update_scroll()
 
     def handle_ctrl_shortcuts(self, event: pygame.event.EventType, shift_pressed: bool) -> None:
-        """Handle keyboard shortcuts with the Control key."""
+        """Process shortcuts when Control/Command key is pressed."""
         if event.key == K_c:
             self.copy_text()
         elif event.key == K_v:
@@ -147,7 +148,7 @@ class TextEditor:
             self.move_word(forward=(event.key == K_RIGHT), shift_pressed=shift_pressed)
 
     def handle_regular_input(self, event: pygame.event.EventType, shift_pressed: bool) -> None:
-        """Handle non-text keyboard input."""
+        """Process non-shortcut key events."""
         key_actions = {
             K_BACKSPACE: self.handle_backspace,
             K_DELETE: self.handle_delete,
@@ -164,7 +165,6 @@ class TextEditor:
         action = key_actions.get(event.key)
         if action:
             action()
-        # Note: For text insertion we now rely on TEXTINPUT events.
 
     def move_cursor(self, direction: int, shift_pressed: bool = False) -> None:
         """Move the cursor in the specified direction."""
@@ -319,7 +319,7 @@ class TextEditor:
         self.update_scroll()
 
     def insert_character(self, char: str) -> None:
-        """Insert a character (or characters) at the current cursor position."""
+        """Insert character(s) at the current cursor position."""
         if not char:
             return
         if self.selection_start and self.selection_end:
@@ -331,17 +331,14 @@ class TextEditor:
         self.update_scroll()
 
     def update_scroll(self) -> None:
-        """Update scroll offsets based on the cursor position."""
+        """Adjust scroll offsets to keep the cursor visible."""
         font_height = self.font.get_height()
         visible_lines = HEIGHT // font_height
-
-        # Update vertical scrolling to ensure the current line is visible.
         if self.current_line < self.scroll_offset:
             self.scroll_offset = self.current_line
         elif self.current_line >= self.scroll_offset + visible_lines:
             self.scroll_offset = self.current_line - visible_lines + 1
 
-        # Update horizontal scrolling to keep the cursor visible.
         cursor_x = self.font.size(self.lines[self.current_line][:self.cursor_pos])[0]
         if cursor_x < self.horizontal_scroll_offset:
             self.horizontal_scroll_offset = max(0, cursor_x - 50)
@@ -370,12 +367,10 @@ class TextEditor:
             self.delete_selection()
         lines = text.split('\n')
         current_line_text = self.lines[self.current_line]
-        # Insert the first line of the pasted text
         self.lines[self.current_line] = (
             current_line_text[:self.cursor_pos] + lines[0] + current_line_text[self.cursor_pos:]
         )
         self.cursor_pos += len(lines[0])
-        # If there are additional lines, insert them into the text buffer.
         if len(lines) > 1:
             self.lines[self.current_line + 1:self.current_line + 1] = lines[1:]
             self.current_line += len(lines) - 1
@@ -398,7 +393,7 @@ class TextEditor:
             self.update_scroll()
 
     def get_selection_range(self) -> Tuple[Tuple[int, int], Tuple[int, int]]:
-        """Return a tuple (start, end) for the current selection."""
+        """Return the normalized (start, end) positions for the selection."""
         assert self.selection_start is not None and self.selection_end is not None
         start, end = self.selection_start, self.selection_end
         if start > end:
@@ -409,16 +404,15 @@ class TextEditor:
         """Retrieve text within the selection."""
         if start[0] == end[0]:
             return self.lines[start[0]][start[1]:end[1]]
-        else:
-            selected_text = [self.lines[start[0]][start[1]:]]
-            selected_text.extend(self.lines[start[0] + 1:end[0]])
-            selected_text.append(self.lines[end[0]][:end[1]])
-            return "\n".join(selected_text)
+        selected_text = [self.lines[start[0]][start[1]:]]
+        selected_text.extend(self.lines[start[0] + 1:end[0]])
+        selected_text.append(self.lines[end[0]][:end[1]])
+        return "\n".join(selected_text)
 
     def undo(self) -> None:
         """Undo the last action."""
         if self.undo_stack:
-            # Save current state for redo
+            # Save the current state for redo.
             self.redo_stack.append((self.lines.copy(), self.current_line, self.cursor_pos, self.drawing_surface.copy()))
             self.lines, self.current_line, self.cursor_pos, self.drawing_surface = self.undo_stack.pop()
             self.update_scroll()
@@ -426,23 +420,22 @@ class TextEditor:
     def redo(self) -> None:
         """Redo the last undone action."""
         if self.redo_stack:
-            # Save current state for undo
             self.undo_stack.append((self.lines.copy(), self.current_line, self.cursor_pos, self.drawing_surface.copy()))
             self.lines, self.current_line, self.cursor_pos, self.drawing_surface = self.redo_stack.pop()
             self.update_scroll()
 
     def draw(self, surface: pygame.Surface) -> None:
-        """Draw the entire editor interface."""
+        """Render the editor interface on the given surface."""
         surface.fill(BACKGROUND_COLOR)
         self.draw_line_numbers(surface)
         self.draw_text(surface)
         self.draw_selection(surface)
         self.draw_cursor(surface)
-        # Blit the freehand drawing layer (scroll-adjusted)
+        # Blit the freehand drawing layer with vertical scroll adjustment.
         surface.blit(self.drawing_surface, (0, -self.drawing_scroll_offset))
 
     def draw_line_numbers(self, surface: pygame.Surface) -> None:
-        """Draw line numbers in a left margin."""
+        """Render the line numbers in the left margin."""
         pygame.draw.rect(surface, LINE_NUMBER_BG_COLOR, (0, 0, 50, HEIGHT))
         font_height = self.font.get_height()
         for i, line_num in enumerate(range(self.scroll_offset + 1, self.scroll_offset + HEIGHT // font_height + 1)):
@@ -459,11 +452,12 @@ class TextEditor:
             surface.blit(text_surface, (60, i * font_height))
 
     def draw_cursor(self, surface: pygame.Surface) -> None:
-        """Draw the blinking text cursor."""
+        """Render the blinking text cursor."""
         if self.cursor_visible:
             cursor_x = 60 + self.font.size(self.lines[self.current_line][:self.cursor_pos])[0] - self.horizontal_scroll_offset
             cursor_y = (self.current_line - self.scroll_offset) * self.font.get_height()
-            pygame.draw.line(surface, CURSOR_COLOR, (cursor_x, cursor_y), (cursor_x, cursor_y + self.font.get_height()), 2)
+            pygame.draw.line(surface, CURSOR_COLOR, (cursor_x, cursor_y),
+                             (cursor_x, cursor_y + self.font.get_height()), 2)
 
     def draw_selection(self, surface: pygame.Surface) -> None:
         """Highlight the selected text."""
@@ -481,7 +475,7 @@ class TextEditor:
                 pygame.draw.rect(surface, SELECTION_COLOR, (start_x, y, end_x - start_x, font_height))
 
     def toggle_cursor(self) -> None:
-        """Toggle the visibility of the cursor to achieve a blinking effect."""
+        """Toggle the visibility of the cursor to create a blinking effect."""
         current_time = pygame.time.get_ticks()
         if current_time - self.last_cursor_toggle_time > 500:
             self.cursor_visible = not self.cursor_visible
@@ -491,7 +485,7 @@ class TextEditor:
 def main() -> None:
     """Main loop to run the text editor."""
     pygame.init()
-    # Enable key repeat for non-text keys (TEXTINPUT handles text input)
+    # Enable key repeat for non-text keys.
     pygame.key.set_repeat(300, 50)
     screen = pygame.display.set_mode((WIDTH, HEIGHT))
     pygame.display.set_caption("Code Wizard")
