@@ -6,7 +6,7 @@ from pygame.locals import (
     K_BACKSPACE, K_DELETE, K_RETURN, K_LEFT, K_RIGHT, K_UP, K_DOWN,
     K_HOME, K_END, K_PAGEUP, K_PAGEDOWN,
     K_c, K_v, K_x, K_z, K_s,  # Added K_s for save shortcut.
-    KMOD_LCTRL, KMOD_RCTRL, KMOD_LMETA, KMOD_RMETA, KMOD_SHIFT,
+    KMOD_LCTRL, KMOD_RCTRL, KMOD_LMETA, KMOD_RMETA, KMOD_SHIFT, KMOD_ALT,
     KEYDOWN, QUIT, MOUSEBUTTONDOWN, MOUSEBUTTONUP, MOUSEMOTION, MOUSEWHEEL, TEXTINPUT,
     VIDEORESIZE
 )
@@ -25,12 +25,14 @@ ERASER_COLOR = (0, 0, 0, 0)
 ERASER_RADIUS = 10
 DRAWING_LINE_WIDTH = 2
 LINE_NUMBER_WIDTH = 50
-TEXT_X_OFFSET = 60  # margin for text (accounts for line numbers)
+TEXT_X_OFFSET = 60  # Margin for text (accounts for line numbers)
 
 class TextEditor:
     """A simple text editor with drawing capability and improved undo/redo support.
     
     Supports loading a file at startup and saving the edited text with a shortcut.
+    Also, on macOS, if the Option key is held while clicking, the cursor jumps
+    to the clicked line and column.
     """
 
     def __init__(self, font: pygame.font.Font, width: int, height: int, file_path: Optional[str] = None) -> None:
@@ -116,6 +118,12 @@ class TextEditor:
         elif event.type == MOUSEWHEEL:
             self.handle_scroll(event)
         elif event.type == MOUSEBUTTONDOWN:
+            # NEW FEATURE: On macOS, if Option (Alt) is held during a left-click,
+            # move the cursor to the clicked position.
+            if sys.platform == "darwin" and (pygame.key.get_mods() & KMOD_ALT):
+                self.handle_option_click(event)
+                return
+
             # For drawing/erasing actions, start a new drawing stroke (if one isn’t already in progress)
             if event.button in (1, 3):  # 1: left (drawing), 3: right (erasing)
                 if not self.drawing_in_progress:
@@ -136,6 +144,34 @@ class TextEditor:
             self.last_pos = None
         elif event.type == MOUSEMOTION:
             self.handle_mouse_motion(event)
+
+    def handle_option_click(self, event: pygame.event.EventType) -> None:
+        """NEW FEATURE: On macOS, when the Option key is held and the user clicks,
+        move the cursor to the corresponding line and column.
+        """
+        font_height = self.font.get_height()
+        # Calculate the target line based on the y-coordinate and scroll offset.
+        target_line = self.scroll_offset + event.pos[1] // font_height
+        # Clamp the target line to available lines.
+        target_line = max(0, min(target_line, len(self.lines) - 1))
+        line_text = self.lines[target_line]
+        # Calculate the effective x coordinate relative to the start of text (adjusting for scrolling).
+        effective_x = event.pos[0] - TEXT_X_OFFSET + self.horizontal_scroll_offset
+        if effective_x < 0:
+            target_col = 0
+        else:
+            target_col = 0
+            # Increment target_col until the width of the rendered substring exceeds effective_x.
+            while target_col < len(line_text) and self.font.size(line_text[:target_col + 1])[0] <= effective_x:
+                target_col += 1
+
+        # Set the cursor to the computed line and column.
+        self.current_line = target_line
+        self.cursor_pos = target_col
+        # Clear any selection.
+        self.selection_start = None
+        self.selection_end = None
+        self.update_scroll()
 
     def handle_mouse_motion(self, event: pygame.event.EventType) -> None:
         """Handle drawing/erasing during mouse motion."""
