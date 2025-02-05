@@ -1,16 +1,18 @@
 import pygame
 import pyperclip
+import sys
 from typing import List, Optional, Tuple
 from pygame.locals import (
     K_BACKSPACE, K_DELETE, K_RETURN, K_LEFT, K_RIGHT, K_UP, K_DOWN,
     K_HOME, K_END, K_PAGEUP, K_PAGEDOWN,
-    K_c, K_v, K_x, K_z,
+    K_c, K_v, K_x, K_z, K_s,  # Added K_s for save shortcut.
     KMOD_LCTRL, KMOD_RCTRL, KMOD_LMETA, KMOD_RMETA, KMOD_SHIFT,
-    KEYDOWN, QUIT, MOUSEBUTTONDOWN, MOUSEBUTTONUP, MOUSEMOTION, MOUSEWHEEL, TEXTINPUT
+    KEYDOWN, QUIT, MOUSEBUTTONDOWN, MOUSEBUTTONUP, MOUSEMOTION, MOUSEWHEEL, TEXTINPUT,
+    VIDEORESIZE
 )
 
 # Configuration Constants
-WIDTH, HEIGHT = 800, 600
+INITIAL_WIDTH, INITIAL_HEIGHT = 800, 600
 BACKGROUND_COLOR = (30, 30, 30)
 TEXT_COLOR = (230, 230, 230)
 CURSOR_COLOR = (255, 255, 255)
@@ -22,17 +24,39 @@ DRAWING_COLOR = (255, 255, 255, 255)
 ERASER_COLOR = (0, 0, 0, 0)
 ERASER_RADIUS = 10
 DRAWING_LINE_WIDTH = 2
-
+LINE_NUMBER_WIDTH = 50
+TEXT_X_OFFSET = 60  # margin for text (accounts for line numbers)
 
 class TextEditor:
-    """A simple text editor with drawing capability and improved undo/redo support."""
+    """A simple text editor with drawing capability and improved undo/redo support.
+    
+    Supports loading a file at startup and saving the edited text with a shortcut.
+    """
 
-    def __init__(self, font: pygame.font.Font) -> None:
+    def __init__(self, font: pygame.font.Font, width: int, height: int, file_path: Optional[str] = None) -> None:
         self.font = font
-        self.lines: List[str] = ['']
+        self.width = width
+        self.height = height
+        self.file_path: Optional[str] = file_path
+
+        # Load file if a file path is provided, otherwise start with an empty line.
+        if file_path is not None:
+            try:
+                with open(file_path, 'r') as f:
+                    content = f.read()
+                self.lines: List[str] = content.splitlines()
+                if not self.lines:
+                    self.lines = ['']
+            except Exception as e:
+                print(f"Error loading file {file_path}: {e}")
+                self.lines = ['']
+        else:
+            self.lines: List[str] = ['']
+
         self.current_line: int = 0
         self.cursor_pos: int = 0
         self.scroll_offset: int = 0
+        # horizontal_scroll_offset is in pixels.
         self.horizontal_scroll_offset: int = 0
         self.selection_start: Optional[Tuple[int, int]] = None
         self.selection_end: Optional[Tuple[int, int]] = None
@@ -43,7 +67,7 @@ class TextEditor:
         self.last_cursor_toggle_time: int = pygame.time.get_ticks()
 
         # Drawing surface for freehand drawing/erasing
-        self.drawing_surface = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA).convert_alpha()
+        self.drawing_surface = pygame.Surface((self.width, self.height), pygame.SRCALPHA).convert_alpha()
         self.drawing_scroll_offset: int = 0
 
         # Mouse drawing state
@@ -51,6 +75,15 @@ class TextEditor:
         self.right_button_down = False
         self.last_pos: Optional[Tuple[int, int]] = None
         self.drawing_in_progress = False  # Track drawing stroke as a single action
+
+    def resize(self, width: int, height: int) -> None:
+        """Resize the editor's drawing surface and update width and height."""
+        old_surface = self.drawing_surface
+        new_surface = pygame.Surface((width, height), pygame.SRCALPHA).convert_alpha()
+        new_surface.blit(old_surface, (0, 0))
+        self.drawing_surface = new_surface
+        self.width = width
+        self.height = height
 
     def add_to_undo_stack(self) -> None:
         """Save the current state into the undo stack and clear the redo stack."""
@@ -124,7 +157,7 @@ class TextEditor:
     def handle_scroll(self, event: pygame.event.EventType) -> None:
         """Handle vertical scrolling using the mouse wheel."""
         font_height = self.font.get_height()
-        max_scroll_offset = max(0, len(self.lines) - HEIGHT // font_height + 1)
+        max_scroll_offset = max(0, len(self.lines) - self.height // font_height + 1)
         self.scroll_offset = max(0, min(max_scroll_offset, self.scroll_offset - event.y))
         self.drawing_scroll_offset = self.scroll_offset * font_height
         self.update_scroll()
@@ -144,6 +177,8 @@ class TextEditor:
                 self.undo()
             else:
                 self.redo()
+        elif event.key == K_s:
+            self.save_file()
         elif event.key in (K_LEFT, K_RIGHT):
             self.move_word(forward=(event.key == K_RIGHT), shift_pressed=shift_pressed)
 
@@ -263,7 +298,7 @@ class TextEditor:
 
     def move_pages(self, direction: int, shift_pressed: bool = False) -> None:
         """Move the cursor up or down by one page."""
-        visible_lines = HEIGHT // self.font.get_height()
+        visible_lines = self.height // self.font.get_height()
         if shift_pressed:
             if self.selection_start is None:
                 self.selection_start = (self.current_line, self.cursor_pos)
@@ -333,17 +368,19 @@ class TextEditor:
     def update_scroll(self) -> None:
         """Adjust scroll offsets to keep the cursor visible."""
         font_height = self.font.get_height()
-        visible_lines = HEIGHT // font_height
+        visible_lines = self.height // font_height
         if self.current_line < self.scroll_offset:
             self.scroll_offset = self.current_line
         elif self.current_line >= self.scroll_offset + visible_lines:
             self.scroll_offset = self.current_line - visible_lines + 1
 
+        # Calculate cursor's pixel position in the line.
         cursor_x = self.font.size(self.lines[self.current_line][:self.cursor_pos])[0]
+        # Adjust horizontal scroll so that the cursor is within a left/right margin.
         if cursor_x < self.horizontal_scroll_offset:
             self.horizontal_scroll_offset = max(0, cursor_x - 50)
-        elif cursor_x > self.horizontal_scroll_offset + WIDTH - 100:
-            self.horizontal_scroll_offset = cursor_x - WIDTH + 100
+        elif cursor_x > self.horizontal_scroll_offset + self.width - 100:
+            self.horizontal_scroll_offset = cursor_x - self.width + 100
 
         self.drawing_scroll_offset = self.scroll_offset * font_height
 
@@ -424,6 +461,20 @@ class TextEditor:
             self.lines, self.current_line, self.cursor_pos, self.drawing_surface = self.redo_stack.pop()
             self.update_scroll()
 
+    def save_file(self) -> None:
+        """Save the current text to the file.
+        
+        If no file was loaded, the text is saved to "untitled.txt".
+        """
+        if not self.file_path:
+            self.file_path = "untitled.txt"
+        try:
+            with open(self.file_path, 'w') as f:
+                f.write("\n".join(self.lines))
+            print(f"File saved to {self.file_path}")
+        except Exception as e:
+            print(f"Error saving file {self.file_path}: {e}")
+
     def draw(self, surface: pygame.Surface) -> None:
         """Render the editor interface on the given surface."""
         surface.fill(BACKGROUND_COLOR)
@@ -436,25 +487,32 @@ class TextEditor:
 
     def draw_line_numbers(self, surface: pygame.Surface) -> None:
         """Render the line numbers in the left margin."""
-        pygame.draw.rect(surface, LINE_NUMBER_BG_COLOR, (0, 0, 50, HEIGHT))
+        pygame.draw.rect(surface, LINE_NUMBER_BG_COLOR, (0, 0, LINE_NUMBER_WIDTH, self.height))
         font_height = self.font.get_height()
-        for i, line_num in enumerate(range(self.scroll_offset + 1, self.scroll_offset + HEIGHT // font_height + 1)):
+        for i, line_num in enumerate(range(self.scroll_offset + 1, self.scroll_offset + self.height // font_height + 1)):
             text_surface = self.font.render(str(line_num), True, LINE_NUMBER_TEXT_COLOR)
             surface.blit(text_surface, (5, i * font_height))
 
     def draw_text(self, surface: pygame.Surface) -> None:
-        """Render the text lines."""
+        """Render the text lines with proper horizontal scrolling.
+        
+        The entire line is rendered and then blitted with an x-offset of TEXT_X_OFFSET minus
+        the horizontal_scroll_offset (which is in pixels). This fixes the bug where slicing the text
+        (using horizontal_scroll_offset as a character index) led to missing text.
+        """
         font_height = self.font.get_height()
         for i, line in enumerate(self.lines[self.scroll_offset:]):
-            if i * font_height > HEIGHT:
+            if i * font_height > self.height:
                 break
-            text_surface = self.font.render(line[self.horizontal_scroll_offset:], True, TEXT_COLOR)
-            surface.blit(text_surface, (60, i * font_height))
+            # Render the full line.
+            text_surface = self.font.render(line, True, TEXT_COLOR)
+            # Blit the text shifted horizontally by the scroll offset.
+            surface.blit(text_surface, (TEXT_X_OFFSET - self.horizontal_scroll_offset, i * font_height))
 
     def draw_cursor(self, surface: pygame.Surface) -> None:
         """Render the blinking text cursor."""
         if self.cursor_visible:
-            cursor_x = 60 + self.font.size(self.lines[self.current_line][:self.cursor_pos])[0] - self.horizontal_scroll_offset
+            cursor_x = TEXT_X_OFFSET + self.font.size(self.lines[self.current_line][:self.cursor_pos])[0] - self.horizontal_scroll_offset
             cursor_y = (self.current_line - self.scroll_offset) * self.font.get_height()
             pygame.draw.line(surface, CURSOR_COLOR, (cursor_x, cursor_y),
                              (cursor_x, cursor_y + self.font.get_height()), 2)
@@ -465,12 +523,12 @@ class TextEditor:
             start, end = self.get_selection_range()
             font_height = self.font.get_height()
             for line_num in range(start[0], end[0] + 1):
-                if line_num < self.scroll_offset or line_num >= self.scroll_offset + HEIGHT // font_height:
+                if line_num < self.scroll_offset or line_num >= self.scroll_offset + self.height // font_height:
                     continue
                 line_start = 0 if line_num != start[0] else start[1]
                 line_end = len(self.lines[line_num]) if line_num != end[0] else end[1]
-                start_x = 60 + self.font.size(self.lines[line_num][:line_start])[0] - self.horizontal_scroll_offset
-                end_x = 60 + self.font.size(self.lines[line_num][:line_end])[0] - self.horizontal_scroll_offset
+                start_x = TEXT_X_OFFSET + self.font.size(self.lines[line_num][:line_start])[0] - self.horizontal_scroll_offset
+                end_x = TEXT_X_OFFSET + self.font.size(self.lines[line_num][:line_end])[0] - self.horizontal_scroll_offset
                 y = (line_num - self.scroll_offset) * font_height
                 pygame.draw.rect(surface, SELECTION_COLOR, (start_x, y, end_x - start_x, font_height))
 
@@ -481,16 +539,21 @@ class TextEditor:
             self.cursor_visible = not self.cursor_visible
             self.last_cursor_toggle_time = current_time
 
-
 def main() -> None:
     """Main loop to run the text editor."""
     pygame.init()
     # Enable key repeat for non-text keys.
     pygame.key.set_repeat(300, 50)
-    screen = pygame.display.set_mode((WIDTH, HEIGHT))
+    screen = pygame.display.set_mode((INITIAL_WIDTH, INITIAL_HEIGHT), pygame.RESIZABLE)
     pygame.display.set_caption("Code Wizard")
     font = pygame.font.SysFont("monospace", FONT_SIZE)
-    editor = TextEditor(font)
+
+    # Load a file if provided as a command-line argument.
+    file_path = sys.argv[1] if len(sys.argv) > 1 else None
+    if file_path:
+        print(f"Loading file: {file_path}")
+
+    editor = TextEditor(font, INITIAL_WIDTH, INITIAL_HEIGHT, file_path)
     clock = pygame.time.Clock()
     running = True
 
@@ -498,6 +561,10 @@ def main() -> None:
         for event in pygame.event.get():
             if event.type == QUIT:
                 running = False
+            elif event.type == VIDEORESIZE:
+                # Update the display and editor on window resize.
+                screen = pygame.display.set_mode((event.w, event.h), pygame.RESIZABLE)
+                editor.resize(event.w, event.h)
             else:
                 editor.handle_event(event)
 
@@ -507,7 +574,6 @@ def main() -> None:
         clock.tick(60)
 
     pygame.quit()
-
 
 if __name__ == "__main__":
     main()
