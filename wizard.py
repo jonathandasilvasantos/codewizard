@@ -2,6 +2,7 @@ import sys
 import re
 import pygame
 import pyperclip
+import subprocess
 from typing import List, Optional, Tuple
 from pygame.locals import (
     K_BACKSPACE, K_DELETE, K_RETURN, K_LEFT, K_RIGHT, K_UP, K_DOWN,
@@ -888,13 +889,126 @@ class Spreadsheet:
 
 
 # --------------------
+# Console Class (Terminal Emulator)
+# --------------------
+class Console:
+    def __init__(self, font: pygame.font.Font, width: int, height: int):
+        self.font = font
+        self.width = width
+        self.height = height
+        self.prompt = ">>> "
+        self.input_buffer = ""
+        self.cursor_pos = 0
+        self.output_lines: List[str] = []
+        self.command_history: List[str] = []
+        self.history_index: Optional[int] = None
+        self.cursor_visible = True
+        self.last_cursor_toggle_time = pygame.time.get_ticks()
+
+    def handle_event(self, event: pygame.event.Event):
+        if event.type == TEXTINPUT:
+            self.input_buffer = self.input_buffer[:self.cursor_pos] + event.text + self.input_buffer[self.cursor_pos:]
+            self.cursor_pos += len(event.text)
+        elif event.type == KEYDOWN:
+            if event.key == K_BACKSPACE:
+                if self.cursor_pos > 0:
+                    self.input_buffer = self.input_buffer[:self.cursor_pos - 1] + self.input_buffer[self.cursor_pos:]
+                    self.cursor_pos -= 1
+            elif event.key == K_DELETE:
+                if self.cursor_pos < len(self.input_buffer):
+                    self.input_buffer = self.input_buffer[:self.cursor_pos] + self.input_buffer[self.cursor_pos + 1:]
+            elif event.key == K_LEFT:
+                if self.cursor_pos > 0:
+                    self.cursor_pos -= 1
+            elif event.key == K_RIGHT:
+                if self.cursor_pos < len(self.input_buffer):
+                    self.cursor_pos += 1
+            elif event.key == K_HOME:
+                self.cursor_pos = 0
+            elif event.key == K_END:
+                self.cursor_pos = len(self.input_buffer)
+            elif event.key == K_UP:
+                if self.command_history:
+                    if self.history_index is None:
+                        self.history_index = len(self.command_history) - 1
+                    elif self.history_index > 0:
+                        self.history_index -= 1
+                    self.input_buffer = self.command_history[self.history_index]
+                    self.cursor_pos = len(self.input_buffer)
+            elif event.key == K_DOWN:
+                if self.command_history and self.history_index is not None:
+                    if self.history_index < len(self.command_history) - 1:
+                        self.history_index += 1
+                        self.input_buffer = self.command_history[self.history_index]
+                    else:
+                        self.history_index = None
+                        self.input_buffer = ""
+                    self.cursor_pos = len(self.input_buffer)
+            elif event.key == K_RETURN:
+                self.process_command()
+
+    def process_command(self):
+        command = self.input_buffer.strip()
+        # Echo the command with the prompt.
+        self.output_lines.append(self.prompt + self.input_buffer)
+        if command:
+            self.command_history.append(self.input_buffer)
+        self.history_index = None
+        if command.lower() in ["clear", "cls"]:
+            self.output_lines.clear()
+        else:
+            try:
+                result = subprocess.run(command, shell=True, capture_output=True, text=True, timeout=5)
+                if result.stdout:
+                    for line in result.stdout.splitlines():
+                        self.output_lines.append(line)
+                if result.stderr:
+                    for line in result.stderr.splitlines():
+                        self.output_lines.append(line)
+                if not result.stdout and not result.stderr:
+                    self.output_lines.append("")
+            except Exception as e:
+                self.output_lines.append("Error: " + str(e))
+        self.input_buffer = ""
+        self.cursor_pos = 0
+
+    def update_cursor(self):
+        current_time = pygame.time.get_ticks()
+        if current_time - self.last_cursor_toggle_time > 500:
+            self.cursor_visible = not self.cursor_visible
+            self.last_cursor_toggle_time = current_time
+
+    def draw(self, surface: pygame.Surface):
+        surface.fill(BACKGROUND_COLOR)
+        line_height = self.font.get_height()
+        # Reserve one line for the input prompt.
+        max_lines = self.height // line_height - 1
+        lines_to_draw = self.output_lines[-max_lines:]
+        y = 0
+        for line in lines_to_draw:
+            text_surface = self.font.render(line, True, TEXT_COLOR)
+            surface.blit(text_surface, (0, y))
+            y += line_height
+        # Draw the input prompt and current input.
+        prompt_line = self.prompt + self.input_buffer
+        prompt_y = self.height - line_height
+        text_surface = self.font.render(prompt_line, True, TEXT_COLOR)
+        surface.blit(text_surface, (0, prompt_y))
+        # Draw blinking cursor.
+        if self.cursor_visible:
+            cursor_x = self.font.size(self.prompt + self.input_buffer[:self.cursor_pos])[0]
+            cursor_rect = pygame.Rect(cursor_x, prompt_y, 2, line_height)
+            pygame.draw.rect(surface, CURSOR_COLOR, cursor_rect)
+
+
+# --------------------
 # Main Application Loop
 # --------------------
 def main() -> None:
     pygame.init()
     pygame.key.set_repeat(300, 50)
     screen = pygame.display.set_mode((INITIAL_WIDTH, INITIAL_HEIGHT), pygame.RESIZABLE)
-    pygame.display.set_caption("Merged App: Code Wizard & Spreadsheet")
+    pygame.display.set_caption("Merged App: Code Wizard, Spreadsheet & Console")
     font = pygame.font.SysFont("monospace", FONT_SIZE)
     ss_font = pygame.font.SysFont("monospace", SPREADSHEET_FONT_SIZE)
 
@@ -909,6 +1023,7 @@ def main() -> None:
 
     editor = TextEditor(font, current_width, main_area_height, file_path)
     spreadsheet = Spreadsheet(ss_font)
+    console = Console(font, current_width, main_area_height)
 
     # Start in text editor mode.
     current_mode = "text"
@@ -925,30 +1040,41 @@ def main() -> None:
                 screen = pygame.display.set_mode((current_width, current_height), pygame.RESIZABLE)
                 main_area_height = current_height - FOOTER_HEIGHT
                 editor.resize(current_width, main_area_height)
+                console.width = current_width
+                console.height = main_area_height
             elif event.type in (MOUSEBUTTONDOWN, MOUSEBUTTONUP, MOUSEMOTION):
                 # Check if event is in the footer area.
                 if event.pos[1] >= current_height - FOOTER_HEIGHT:
                     if event.type == MOUSEBUTTONDOWN:
-                        if event.pos[0] < current_width // 2:
+                        button_width = current_width // 3
+                        if event.pos[0] < button_width:
                             current_mode = "text"
-                        else:
+                        elif event.pos[0] < 2 * button_width:
                             current_mode = "spreadsheet"
+                        else:
+                            current_mode = "console"
                     continue  # Do not pass footer events to the active app.
                 else:
                     if current_mode == "text":
                         editor.handle_event(event)
                     elif current_mode == "spreadsheet":
                         spreadsheet.handle_event(event)
+                    elif current_mode == "console":
+                        console.handle_event(event)
             else:
                 if current_mode == "text":
                     editor.handle_event(event)
                 elif current_mode == "spreadsheet":
                     spreadsheet.handle_event(event)
+                elif current_mode == "console":
+                    console.handle_event(event)
 
         if current_mode == "text":
             editor.toggle_cursor()
         elif current_mode == "spreadsheet":
             spreadsheet.update_cursor()
+        elif current_mode == "console":
+            console.update_cursor()
 
         # Draw the main area.
         main_area_rect = pygame.Rect(0, 0, current_width, main_area_height)
@@ -957,15 +1083,18 @@ def main() -> None:
             editor.draw(main_area_surface)
         elif current_mode == "spreadsheet":
             spreadsheet.draw(main_area_surface)
+        elif current_mode == "console":
+            console.draw(main_area_surface)
 
-        # Draw the footer bar.
+        # Draw the footer bar with three buttons.
         footer_rect = pygame.Rect(0, current_height - FOOTER_HEIGHT, current_width, FOOTER_HEIGHT)
         pygame.draw.rect(screen, FOOTER_BG_COLOR, footer_rect)
-        button_width = current_width // 2
+        button_width = current_width // 3
 
         # Prepare button texts.
         text_btn = font.render("Text", True, TEXT_COLOR)
         spread_btn = font.render("Spreadsheet", True, TEXT_COLOR)
+        console_btn = font.render("Console", True, TEXT_COLOR)
 
         # Left button (Text)
         text_button_rect = pygame.Rect(0, current_height - FOOTER_HEIGHT, button_width, FOOTER_HEIGHT)
@@ -975,13 +1104,21 @@ def main() -> None:
         text_btn_rect = text_btn.get_rect(center=text_button_rect.center)
         screen.blit(text_btn, text_btn_rect)
 
-        # Right button (Spreadsheet)
+        # Middle button (Spreadsheet)
         spread_button_rect = pygame.Rect(button_width, current_height - FOOTER_HEIGHT, button_width, FOOTER_HEIGHT)
         btn_color = FOOTER_ACTIVE_COLOR if current_mode == "spreadsheet" else FOOTER_INACTIVE_COLOR
         pygame.draw.rect(screen, btn_color, spread_button_rect)
         pygame.draw.rect(screen, GRID_COLOR, spread_button_rect, 1)
         spread_btn_rect = spread_btn.get_rect(center=spread_button_rect.center)
         screen.blit(spread_btn, spread_btn_rect)
+
+        # Right button (Console)
+        console_button_rect = pygame.Rect(2 * button_width, current_height - FOOTER_HEIGHT, button_width, FOOTER_HEIGHT)
+        btn_color = FOOTER_ACTIVE_COLOR if current_mode == "console" else FOOTER_INACTIVE_COLOR
+        pygame.draw.rect(screen, btn_color, console_button_rect)
+        pygame.draw.rect(screen, GRID_COLOR, console_button_rect, 1)
+        console_btn_rect = console_btn.get_rect(center=console_button_rect.center)
+        screen.blit(console_btn, console_btn_rect)
 
         pygame.display.flip()
         clock.tick(60)
