@@ -68,8 +68,14 @@ class TextEditor:
         self.cursor_visible: bool = True
         self.last_cursor_toggle_time: int = pygame.time.get_ticks()
 
-        # Drawing surface for freehand drawing/erasing
-        self.drawing_surface = pygame.Surface((self.width, self.height), pygame.SRCALPHA).convert_alpha()
+        # --- NEW: Create a persistent drawing canvas.
+        # We use a canvas that is larger than the visible window so that drawings
+        # persist even when scrolling or resizing. (We start with a 2000x2000 surface.)
+        self.canvas_width = max(2000, width)
+        self.canvas_height = max(2000, height)
+        self.drawing_surface = pygame.Surface((self.canvas_width, self.canvas_height), pygame.SRCALPHA).convert_alpha()
+        self.drawing_surface.fill((0, 0, 0, 0))  # Make sure it is transparent.
+        # The vertical offset (in pixels) used when blitting the drawing layer.
         self.drawing_scroll_offset: int = 0
 
         # Mouse drawing state
@@ -78,12 +84,25 @@ class TextEditor:
         self.last_pos: Optional[Tuple[int, int]] = None
         self.drawing_in_progress = False  # Track drawing stroke as a single action
 
+    def ensure_canvas_size(self, x: int, y: int) -> None:
+        """Ensure the drawing canvas is large enough to include the point (x, y) (in document coordinates)."""
+        current_width, current_height = self.drawing_surface.get_size()
+        new_width = current_width
+        new_height = current_height
+        margin = 100  # extra space
+        if x >= current_width:
+            new_width = x + margin
+        if y >= current_height:
+            new_height = y + margin
+        if new_width != current_width or new_height != current_height:
+            new_surface = pygame.Surface((new_width, new_height), pygame.SRCALPHA).convert_alpha()
+            new_surface.fill((0, 0, 0, 0))
+            new_surface.blit(self.drawing_surface, (0, 0))
+            self.drawing_surface = new_surface
+
     def resize(self, width: int, height: int) -> None:
-        """Resize the editor's drawing surface and update width and height."""
-        old_surface = self.drawing_surface
-        new_surface = pygame.Surface((width, height), pygame.SRCALPHA).convert_alpha()
-        new_surface.blit(old_surface, (0, 0))
-        self.drawing_surface = new_surface
+        """Resize the editor’s view (not the persistent drawing canvas) and update width and height."""
+        # We no longer recreate the drawing canvas on resize.
         self.width = width
         self.height = height
 
@@ -133,7 +152,11 @@ class TextEditor:
                     self.left_button_down = True
                 elif event.button == 3:
                     self.right_button_down = True
-                self.last_pos = (event.pos[0], event.pos[1] + self.drawing_scroll_offset)
+                # Convert the mouse position to document coordinates.
+                doc_x = event.pos[0] - TEXT_X_OFFSET + self.horizontal_scroll_offset
+                doc_y = event.pos[1] + self.drawing_scroll_offset
+                self.ensure_canvas_size(doc_x, doc_y)
+                self.last_pos = (doc_x, doc_y)
         elif event.type == MOUSEBUTTONUP:
             if event.button == 1:
                 self.left_button_down = False
@@ -176,10 +199,20 @@ class TextEditor:
     def handle_mouse_motion(self, event: pygame.event.EventType) -> None:
         """Handle drawing/erasing during mouse motion."""
         if self.left_button_down or self.right_button_down:
-            current_pos = (event.pos[0], event.pos[1] + self.drawing_scroll_offset)
+            # Convert current mouse position to document coordinates.
+            doc_x = event.pos[0] - TEXT_X_OFFSET + self.horizontal_scroll_offset
+            doc_y = event.pos[1] + self.drawing_scroll_offset
+            self.ensure_canvas_size(doc_x, doc_y)
+            current_pos = (doc_x, doc_y)
             if self.last_pos is not None:
                 if self.left_button_down:
-                    pygame.draw.line(self.drawing_surface, DRAWING_COLOR, self.last_pos, current_pos, DRAWING_LINE_WIDTH)
+                    pygame.draw.line(
+                        self.drawing_surface,
+                        DRAWING_COLOR,
+                        self.last_pos,
+                        current_pos,
+                        DRAWING_LINE_WIDTH
+                    )
                 elif self.right_button_down:
                     eraser_surface = pygame.Surface((ERASER_RADIUS * 2, ERASER_RADIUS * 2), pygame.SRCALPHA)
                     pygame.draw.circle(eraser_surface, ERASER_COLOR, (ERASER_RADIUS, ERASER_RADIUS), ERASER_RADIUS)
@@ -518,8 +551,11 @@ class TextEditor:
         self.draw_text(surface)
         self.draw_selection(surface)
         self.draw_cursor(surface)
-        # Blit the freehand drawing layer with vertical scroll adjustment.
-        surface.blit(self.drawing_surface, (0, -self.drawing_scroll_offset))
+        # Blit the freehand drawing layer.
+        # The drawing canvas is in document coordinates.
+        # Its origin (0,0) corresponds to the top‐left of the text area.
+        # To map it to the screen, we shift by (TEXT_X_OFFSET - horizontal_scroll_offset, -drawing_scroll_offset).
+        surface.blit(self.drawing_surface, (TEXT_X_OFFSET - self.horizontal_scroll_offset, -self.drawing_scroll_offset))
 
     def draw_line_numbers(self, surface: pygame.Surface) -> None:
         """Render the line numbers in the left margin."""
@@ -533,8 +569,7 @@ class TextEditor:
         """Render the text lines with proper horizontal scrolling.
         
         The entire line is rendered and then blitted with an x-offset of TEXT_X_OFFSET minus
-        the horizontal_scroll_offset (which is in pixels). This fixes the bug where slicing the text
-        (using horizontal_scroll_offset as a character index) led to missing text.
+        the horizontal_scroll_offset.
         """
         font_height = self.font.get_height()
         for i, line in enumerate(self.lines[self.scroll_offset:]):
